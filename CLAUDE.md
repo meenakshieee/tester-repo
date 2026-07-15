@@ -51,8 +51,9 @@ cd ../app/course-catalog-app/client && npm run dev
   - **API tests** (`tests/api/`): Direct REST calls via Playwright `APIRequestContext`
   - **E2E tests** (`tests/e2e/`): Browser automation via Playwright `Page`
   - **Generated tests** (`tests/generated/`): Executable tests derived from the AI agent's Markdown plan
-  - **Page Objects** (`pages/`): Encapsulate selectors and user interactions
-  - **Fixtures** (`tests/fixtures/conftest.py`): Provide the API client, auth, credentials, and data cleanup
+  - **API client** (`clients/courses_client.py`): typed, auth-aware wrapper over the REST API (tests call this, not raw requests)
+  - **Page Objects** (`pages/`): `BasePage` + concrete pages; selectors live here only
+  - **Fixtures** (`tests/fixtures/conftest.py`): API client, data factory, cleanup, auth, credentials
   - **Config** (`config.py`, repo root): single env-driven source of truth for URLs + credentials
 - **Fixture loading**: the root `tests/conftest.py` registers the fixtures via
   `pytest_plugins = ["tests.fixtures.conftest"]`, making them available to every test module.
@@ -72,18 +73,27 @@ The frontend stores auth state **in React memory only** (`useState` in `UserCont
 
 | Fixture | Scope | Purpose |
 |---|---|---|
-| `api_client` | session | Playwright `APIRequestContext` for direct API calls |
-| `auth_headers` | session | HTTP Basic auth header for the configured test user |
-| `test_user` | session | `{"email", "password"}` from config (env-overridable) — use in E2E logins |
-| `created_courses` | function | Append created course IDs; deletes them on teardown (enables safe parallel runs) |
+| `api_client` | session | Low-level Playwright `APIRequestContext` |
+| `courses_api` | function | Typed `CoursesApiClient` authed as the primary user — **use this in tests** |
+| `other_courses_api` | function | Typed client authed as a *second* user (for cross-user 403 tests) |
+| `auth_headers` | session | HTTP Basic auth header for the primary user |
+| `test_user` | session | `{"email", "password"}` from config — use in E2E logins |
+| `created_courses` | function | Append created course IDs; deletes them on teardown (safe parallel runs) |
+| `course_factory` | function | Callable that creates a valid course + auto-registers cleanup |
 
 All values come from [`config.py`](config.py), so nothing is hardcoded — override via env or `.env`.
 
+**Markers / quarantine:** tests are tagged `api` / `e2e` / `smoke` / `regression`. Tests marked
+`quarantine` are auto-skipped in default/gate runs (enforced in `tests/conftest.py`) and only run
+via `pytest -m quarantine`. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ### Page Objects (in `pages/`)
 
-Page objects own **all** selectors and expose intent-revealing `expect_*` assertion
-methods (using Playwright's auto-waiting `expect`). Tests never touch raw selectors
-or hardcoded URLs.
+All page objects extend **`BasePage`** (`pages/base_page.py`), which provides the driver
+handle, `base_url`, `url` (from a `PATH` class attr), `open()` navigation, and a
+`_verify_loaded()` hook. Concrete pages declare only their locators + intent. Page objects
+own **all** selectors and expose intent-revealing `expect_*` assertions (auto-waiting).
+Tests never touch raw selectors or hardcoded URLs.
 
 | Class | Actions | Assertions |
 |---|---|---|
@@ -166,10 +176,14 @@ as a GitHub Actions secret. Note: there is currently no artifact-upload step.
 ## Key Files & Their Roles
 
 - **`config.py`** (repo root): single env-driven source of truth for URLs + credentials
-- **`tests/conftest.py`**: Root conftest — registers the fixtures plugin
-- **`tests/fixtures/conftest.py`**: Fixtures (`api_client`, `auth_headers`, `test_user`, `created_courses`)
-- **`tests/api/test_courses_api.py`**: Contract tests for REST endpoints
+- **`clients/courses_client.py`**: typed, auth-aware REST client (`CoursesApiClient`)
+- **`pages/base_page.py`**: shared Page Object base class
+- **`tests/conftest.py`**: Root conftest — fixture registration + quarantine hook
+- **`tests/fixtures/conftest.py`**: Fixtures (`courses_api`, `other_courses_api`, `course_factory`, `created_courses`, `auth_headers`, `test_user`)
+- **`tests/api/test_courses_api.py`**: API contract tests (create/list/validation/auth)
+- **`tests/api/test_courses_crud_api.py`**: CRUD + cross-user authorization (403) tests
 - **`tests/e2e/test_courses_e2e.py`**: Full UI flows (login → create → verify)
+- **`CONTRIBUTING.md`**: Tagging taxonomy, quarantine policy, how to add tests
 - **`tests/generated/test_courses_agent.py`**: Executable tests derived from the agent's plan
 - **`pages/login_page.py`**: Sign-in page object
 - **`pages/courses_page.py`**: Dashboard + create-course page object

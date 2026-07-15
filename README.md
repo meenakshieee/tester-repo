@@ -60,18 +60,22 @@ This framework makes a few deliberate design choices. Full rationale lives in [`
 
 ```
 tester-repo/
+├── config.py             # Single source of truth for URLs + credentials (env-driven)
+├── clients/              # Typed, auth-aware API client (courses_client.py)
+├── pages/                # Page Object Model — BasePage + concrete pages
 ├── tests/
-│   ├── api/              # Reference API tests (Basic Auth & Course CRUD)
-│   ├── e2e/              # Reference UI end-to-end tests (POM-based)
+│   ├── api/              # API contract + CRUD/authorization tests
+│   ├── e2e/              # UI end-to-end tests (POM-based)
 │   ├── generated/        # Executable tests derived from the AI agent's plan
-│   └── fixtures/         # Shared pytest fixtures (conftest.py)
-├── pages/                # Page Object Model (POM) classes
+│   ├── fixtures/         # Shared fixtures (client, factory, cleanup, auth)
+│   └── conftest.py       # Fixture registration + quarantine policy hook
 ├── agent/                # AI test-writing agent
-│   └── generated/        # AI-generated Markdown test plan (create_course.md)
+│   └── generated/        # AI-generated Markdown test plans
 ├── docs/                 # Architecture decision record (architecture.md)
 ├── .github/workflows/    # CI/CD pipeline (ci.yml)
 ├── requirements.txt      # Python dependencies
 ├── CODEOWNERS            # Review-gating configuration
+├── CONTRIBUTING.md       # How to add tests (taxonomy, quarantine, cleanup)
 └── README.md            # This document
 ```
 
@@ -165,10 +169,13 @@ it pays off as the suite grows.
 
 | Layer | Tests | Scope |
 | --- | --- | --- |
-| **API** | 4 | `GET /api/courses`, `POST /api/courses`, missing-field validation, unauthenticated rejection |
+| **API contract** | 4 | `GET`/`POST /api/courses`, missing-field validation, unauthenticated rejection |
+| **API CRUD + authz** | 6 | `GET`/`PUT`/`DELETE /api/courses/:id`, 404s, and a cross-user **403** authorization check |
 | **E2E (UI)** | 2 | Sign in → create course → verify on dashboard; empty-form validation |
 | **AI-generated** | 2 | Executable tests derived from the agent's grounded Markdown plan |
-| **Total** | **8** | Focused on the course-creation flow as a reference implementation. |
+| **Total** | **14** | Full course lifecycle, exercised through a typed client + data factory. |
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the tagging taxonomy, quarantine policy, and how to add tests.
 
 ---
 

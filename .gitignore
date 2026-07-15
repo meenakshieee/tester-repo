@@ -12,6 +12,7 @@ test-results/
 playwright-report/
 blob-report/
 junit/
+reports/
 
 # Virtual Environment
 venv/

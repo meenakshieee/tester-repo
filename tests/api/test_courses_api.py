@@ -1,73 +1,57 @@
-import pytest
 import uuid
+
+import pytest
 
 # Applies the 'api' marker to every test in this module (enables `pytest -m api`).
 pytestmark = pytest.mark.api
 
-def test_get_courses(api_client):
-    """Verifies that public users can fetch the list of courses."""
-    response = api_client.get("/api/courses")
+
+def test_get_courses(courses_api):
+    """Public users can fetch the list of courses."""
+    response = courses_api.list_courses()
     assert response.status == 200
     courses = response.json()
     assert isinstance(courses, list)
     assert len(courses) > 0
-    # Check that courses have the required fields
     for course in courses:
         assert "id" in course
         assert "title" in course
         assert "description" in course
 
-def test_create_course_success(api_client, auth_headers, created_courses):
-    """Verifies that an authenticated user can successfully create a course."""
+
+def test_create_course_success(courses_api, created_courses):
+    """An authenticated user can create a course (201 + courseId)."""
     unique_title = f"API Woodworking Course - {uuid.uuid4().hex[:8]}"
-    course_data = {
+    response = courses_api.create_course({
         "title": unique_title,
         "description": "Learn to carve wooden joints with hand tools.",
         "estimatedTime": "10 hours",
-        "materialsNeeded": "Chisel, mallet, oak wood block"
-    }
-
-    response = api_client.post(
-        "/api/courses",
-        data=course_data,
-        headers=auth_headers
-    )
+        "materialsNeeded": "Chisel, mallet, oak wood block",
+    })
 
     assert response.status == 201
     body = response.json()
     assert "courseId" in body
     assert isinstance(body["courseId"], int)
 
-    # Register for cleanup so the test leaves no residual data.
-    created_courses.append(body["courseId"])
+    created_courses.append(body["courseId"])  # cleanup on teardown
 
-def test_create_course_missing_fields(api_client, auth_headers):
-    """Verifies that validation fails if required fields are missing."""
-    # Case A: Missing title
-    response = api_client.post(
-        "/api/courses",
-        data={"description": "Missing title"},
-        headers=auth_headers
-    )
-    assert response.status == 400
-    assert response.json()["message"] == "Missing required fields"
 
-    # Case B: Missing description
-    response = api_client.post(
-        "/api/courses",
-        data={"title": "Missing description"},
-        headers=auth_headers
-    )
-    assert response.status == 400
-    assert response.json()["message"] == "Missing required fields"
+def test_create_course_missing_fields(courses_api):
+    """Validation fails (400) when required fields are missing."""
+    missing_title = courses_api.create_course({"description": "Missing title"})
+    assert missing_title.status == 400
+    assert missing_title.json()["message"] == "Missing required fields"
 
-def test_create_course_unauthorized(api_client):
-    """Verifies that unauthenticated users cannot create courses."""
-    response = api_client.post(
-        "/api/courses",
-        data={
-            "title": "Unauthorized Course",
-            "description": "This should fail because no auth headers are provided."
-        }
+    missing_description = courses_api.create_course({"title": "Missing description"})
+    assert missing_description.status == 400
+    assert missing_description.json()["message"] == "Missing required fields"
+
+
+def test_create_course_unauthorized(courses_api):
+    """Unauthenticated users cannot create courses (401)."""
+    response = courses_api.create_course(
+        {"title": "Unauthorized Course", "description": "No auth header supplied."},
+        authed=False,
     )
     assert response.status == 401

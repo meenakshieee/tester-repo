@@ -37,11 +37,24 @@ class Settings:
     test_user_email: str = os.getenv("TEST_USER_EMAIL", "joe@smith.com")
     test_user_password: str = os.getenv("TEST_USER_PASSWORD", "joepassword")
 
+    # A second seeded user, used only for cross-user authorization tests (403s).
+    other_user_email: str = os.getenv("OTHER_USER_EMAIL", "sally@jones.com")
+    other_user_password: str = os.getenv("OTHER_USER_PASSWORD", "sallypassword")
+
+    @staticmethod
+    def _basic_header(email: str, password: str) -> str:
+        raw = f"{email}:{password}".encode("utf-8")
+        return "Basic " + base64.b64encode(raw).decode("ascii")
+
     @property
     def basic_auth_header(self) -> str:
-        """HTTP Basic ``Authorization`` header value for the configured user."""
-        raw = f"{self.test_user_email}:{self.test_user_password}".encode("utf-8")
-        return "Basic " + base64.b64encode(raw).decode("ascii")
+        """HTTP Basic ``Authorization`` header value for the primary user."""
+        return self._basic_header(self.test_user_email, self.test_user_password)
+
+    @property
+    def other_basic_auth_header(self) -> str:
+        """HTTP Basic ``Authorization`` header value for the secondary user."""
+        return self._basic_header(self.other_user_email, self.other_user_password)
 
 
 # A single shared instance imported everywhere config is needed.

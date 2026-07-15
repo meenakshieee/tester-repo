@@ -1,14 +1,17 @@
 import re
+
 from playwright.sync_api import Page, expect
 
-from config import settings
+from pages.base_page import BasePage
 
-class CoursesPage:
+
+class CoursesPage(BasePage):
+    """Page Object for the Courses dashboard and the Create Course flow."""
+
+    PATH = ""  # the dashboard is the app root
+
     def __init__(self, page: Page):
-        self.page = page
-        self.base_url = settings.base_url
-        self.dashboard_url = f"{self.base_url}/"
-        self.create_url = f"{self.base_url}/courses/create"
+        super().__init__(page)
 
         # Dashboard locators
         self.new_course_link = page.locator(".course--add--module")
@@ -25,20 +28,23 @@ class CoursesPage:
         # Detail-page locator
         self.detail_title = page.locator("h4.course--name")
 
-    def navigate_to_dashboard(self):
+    def _verify_loaded(self) -> None:
+        expect(self.new_course_link).to_be_visible()
+
+    def navigate_to_dashboard(self) -> "CoursesPage":
         """Navigate to the dashboard.
 
         Uses a full page load. The dashboard `/` is a public route, so this is
         fine for *viewing* courses even though it drops the in-memory auth
         session. Do not rely on staying authenticated after calling this.
         """
-        self.page.goto(self.dashboard_url)
-        expect(self.new_course_link).to_be_visible()
+        return self.open()
 
-    def navigate_to_create(self):
+    def navigate_to_create(self) -> "CoursesPage":
         """Click 'New Course' to open the creation form."""
         self.new_course_link.click()
         expect(self.title_input).to_be_visible()
+        return self
 
     def create_course(self, title: str, description: str, estimated_time: str = "", materials_needed: str = ""):
         """Fill and submit the course creation form."""
