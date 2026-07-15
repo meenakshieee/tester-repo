@@ -2,7 +2,7 @@
 
 Reads a target backend source file (by default the Express router at
 ``api/Routes/routes.js``), asks an LLM to analyse the *actual* routes it finds,
-and writes a Markdown test plan to ``agent/generated/create_course.md``.
+and writes a grounded Markdown test plan under ``agent/generated/``.
 
 Design choices:
 
@@ -14,17 +14,26 @@ Design choices:
   methods, and field names that appear in the supplied source. This is the main
   guard against hallucinated endpoints. We pass the raw source as the sole
   source of truth and forbid inventing anything not present in it.
+* **Capability-agnostic.** The scope is derived from the target file (and an
+  optional ``--feature`` flag), not hardcoded. With no ``--feature`` the agent
+  plans every endpoint it finds; with one it focuses on that capability. The
+  output filename follows the scope automatically.
 * **Generic LLM Support.** Swapping model vendors (Gemini, Claude, or OpenAI)
   is supported out-of-the-box via a lightweight, native HTTP client wrapper.
   This avoids heavy compiled dependencies (like LiteLLM) that require Rust or C++ compilers.
 
 Usage:
-    python agent/generate_tests.py \
-        --source ../app/course-catalog-app/api/Routes/routes.js \
-        --output agent/generated/create_course.md \
-        --model gemini-3.5-flash
+    # Plan every endpoint in the source -> agent/generated/routes_test_plan.md
+    python agent/generate_tests.py --source ../app/course-catalog-app/api/Routes/routes.js
 
-Requires the environment variable matching your chosen vendor (e.g. ``GEMINI_API_KEY``, 
+    # Focus on one capability -> agent/generated/course_creation.md
+    python agent/generate_tests.py --feature "course creation"
+
+    # Any vendor / explicit output
+    python agent/generate_tests.py --feature "user login" \
+        --model claude-3-5-sonnet-latest --output agent/generated/login.md
+
+Requires the environment variable matching your chosen vendor (e.g. ``GEMINI_API_KEY``,
 ``ANTHROPIC_API_KEY``, or ``OPENAI_API_KEY``).
 """
 
@@ -32,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -45,14 +55,16 @@ REPO_ROOT = AGENT_DIR.parent
 DEFAULT_SOURCE = (
     REPO_ROOT.parent / "app" / "course-catalog-app" / "api" / "Routes" / "routes.js"
 )
-DEFAULT_OUTPUT = AGENT_DIR / "generated" / "create_course.md"
+GENERATED_DIR = AGENT_DIR / "generated"
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
+# Generic grounding instructions -- capability-agnostic. The specific scope is
+# injected into the user prompt, not baked into the system prompt.
 SYSTEM_INSTRUCTION = """\
 You are a meticulous Senior SDET who writes precise, grounded test plans.
 
-You will be given the complete source code of a backend file. Your job is to
-produce a Markdown test plan focused on the *course creation* capability.
+You will be given the complete source code of a backend file. Produce a Markdown
+test plan that is grounded strictly in that source.
 
 Hard rules -- follow them exactly:
 1. Use ONLY the HTTP methods, URL paths, request fields, response status codes,
@@ -69,25 +81,28 @@ Hard rules -- follow them exactly:
 
 USER_PROMPT_TEMPLATE = """\
 Analyse the backend source below and produce a Markdown test plan titled
-"# Create Course - Test Plan".
+"# {title}".
+
+Scope: {scope_instruction}
 
 Include these sections:
 
-## Endpoint Under Test
-- Method, path, auth requirement, required vs. optional request fields, and the
-  success status code + response body -- all taken directly from the source.
+## Endpoint(s) Under Test
+- For each endpoint in scope: method, path, auth requirement, required vs.
+  optional request fields, and the success status code + response body -- all
+  taken directly from the source.
 
 ## UI Test Cases (End-to-End)
-- Numbered, step-by-step user actions for creating a course through the app
-  (sign in, open the create form, fill fields, submit, verify). Describe the
-  expected outcome for each case, including at least one happy path and one
-  validation-failure path.
+- Numbered, step-by-step user actions for exercising this scope through the app
+  (e.g. sign in, navigate, fill fields, submit, verify) where a UI flow applies.
+  Include at least one happy path and one validation/failure path per capability.
+  If a UI flow cannot be inferred from the source, state that explicitly.
 
 ## API Test Cases
 - For each case: the request (method, path, auth header format, example JSON
-  payload) and the expected response (status code + body fields). Cover: a
-  successful create, a create missing a required field, and an unauthenticated
-  create.
+  payload) and the expected response (status code + body fields). For every
+  mutating endpoint, cover a success case, a missing-required-field case, and an
+  unauthenticated case where authentication is required by the source.
 
 ## Assertions Checklist
 - A bullet list of concrete assertions a test should make.
@@ -98,6 +113,35 @@ Backend source file: `{source_name}`
 {source_code}
 ```
 """
+
+
+def _slugify(text: str) -> str:
+    """Turn a free-text feature name into a safe snake_case filename stem."""
+    slug = re.sub(r"[^a-z0-9]+", "_", text.strip().lower()).strip("_")
+    return slug or "test_plan"
+
+
+def resolve_scope(feature: str | None, source_name: str) -> tuple[str, str, str]:
+    """Derive (title, scope_instruction, output_stem) from the requested feature.
+
+    - With ``--feature``: focus the plan on that capability.
+    - Without it: cover every endpoint found in the source (fully generic).
+    """
+    if feature:
+        title = f"{feature.strip().title()} - Test Plan"
+        scope = (
+            f"Focus specifically on the **{feature.strip()}** capability, but only "
+            "if endpoints supporting it exist in the source."
+        )
+        stem = _slugify(feature)
+    else:
+        title = f"{source_name} - API Test Plan"
+        scope = (
+            "Cover **every** endpoint you find in the source. Group the plan by "
+            "endpoint and derive each capability from the code itself."
+        )
+        stem = f"{_slugify(Path(source_name).stem)}_test_plan"
+    return title, scope, stem
 
 
 def read_source(source_path: Path) -> str:
@@ -114,9 +158,13 @@ def generate_test_plan(
     model: str,
     source_name: str,
     source_code: str,
+    title: str,
+    scope_instruction: str,
 ) -> str:
     """Call the LLM using Gemini SDK or generic API requests (Claude, OpenAI)."""
     prompt = USER_PROMPT_TEMPLATE.format(
+        title=title,
+        scope_instruction=scope_instruction,
         source_name=source_name,
         source_code=source_code,
     )
@@ -211,10 +259,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path to the backend source file to analyse (default: the Express router).",
     )
     parser.add_argument(
+        "--feature",
+        default=None,
+        help=(
+            "Optional capability to focus on (e.g. 'course creation', 'user login'). "
+            "Omit to generate a plan covering every endpoint in the source."
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=Path,
-        default=DEFAULT_OUTPUT,
-        help="Path to write the generated Markdown test plan.",
+        default=None,
+        help=(
+            "Path to write the Markdown test plan. Defaults to "
+            "agent/generated/<feature-or-source>.md derived from the scope."
+        ),
     )
     parser.add_argument(
         "--model",
@@ -229,16 +288,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     source_path: Path = args.source.resolve()
-    output_path: Path = args.output.resolve()
+
+    # Derive the plan's title, scope, and default output name from the target
+    # (and the optional --feature), instead of assuming a fixed capability.
+    title, scope_instruction, output_stem = resolve_scope(args.feature, source_path.name)
+    output_path: Path = (args.output or (GENERATED_DIR / f"{output_stem}.md")).resolve()
 
     print(f"[agent] Reading backend source: {source_path}")
     source_code = read_source(source_path)
 
+    print(f"[agent] Scope: {title}")
     print(f"[agent] Requesting test plan from model: {args.model}")
     markdown = generate_test_plan(
         model=args.model,
         source_name=source_path.name,
         source_code=source_code,
+        title=title,
+        scope_instruction=scope_instruction,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

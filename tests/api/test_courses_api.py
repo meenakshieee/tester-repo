@@ -1,6 +1,9 @@
 import pytest
 import uuid
 
+# Applies the 'api' marker to every test in this module (enables `pytest -m api`).
+pytestmark = pytest.mark.api
+
 def test_get_courses(api_client):
     """Verifies that public users can fetch the list of courses."""
     response = api_client.get("/api/courses")

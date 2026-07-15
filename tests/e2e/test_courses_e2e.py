@@ -3,23 +3,22 @@ import uuid
 from pages.login_page import LoginPage
 from pages.courses_page import CoursesPage
 
-# Test Credentials (seeded by default in the app)
-EMAIL = "joe@smith.com"
-PASSWORD = "joepassword"
+# Applies the 'e2e' marker to every test in this module (enables `pytest -m e2e`).
+pytestmark = pytest.mark.e2e
 
 
-def test_e2e_create_course_success(page):
+def test_e2e_create_course_success(page, test_user):
     """Happy Path: User logs in, creates a course, and verifies it appears on the dashboard.
 
     This test uses Page Objects exclusively to avoid brittle hardcoded URLs and
-    text-based assertions.
+    text-based assertions. Credentials come from the env-driven `test_user` fixture.
     """
     login_page = LoginPage(page)
     courses_page = CoursesPage(page)
 
     # 1. Sign In
     login_page.navigate()
-    login_page.login(EMAIL, PASSWORD)
+    login_page.login(test_user["email"], test_user["password"])
     login_page.expect_signed_in()
 
     # 2. Navigate to Create Form & Submit
@@ -39,7 +38,7 @@ def test_e2e_create_course_success(page):
     courses_page.expect_course_in_list(unique_title)
 
 
-def test_e2e_create_course_validation_failure(page):
+def test_e2e_create_course_validation_failure(page, test_user):
     """Validation Failure: Submitting an empty form displays error messages.
 
     Verifies that the frontend validation catches missing required fields.
@@ -49,7 +48,7 @@ def test_e2e_create_course_validation_failure(page):
 
     # 1. Sign In
     login_page.navigate()
-    login_page.login(EMAIL, PASSWORD)
+    login_page.login(test_user["email"], test_user["password"])
     login_page.expect_signed_in()
 
     # 2. Navigate to Create Course Form

@@ -1,11 +1,12 @@
-import os
 import re
 from playwright.sync_api import Page, expect
+
+from config import settings
 
 class CoursesPage:
     def __init__(self, page: Page):
         self.page = page
-        self.base_url = os.getenv("BASE_URL", "http://localhost:5173").rstrip("/")
+        self.base_url = settings.base_url
         self.dashboard_url = f"{self.base_url}/"
         self.create_url = f"{self.base_url}/courses/create"
 

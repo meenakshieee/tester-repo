@@ -1,6 +1,58 @@
 # Automation Framework & Test-Writing Agent
 
-This repository contains a professional automation testing framework and an AI-powered test-generation agent built for the **Course Catalog App** (React client + Express SQLite backend).
+[![CI Gating Suite](https://github.com/meenakshieee/tester-repo/actions/workflows/ci.yml/badge.svg)](https://github.com/meenakshieee/tester-repo/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Playwright 1.44](https://img.shields.io/badge/Playwright-1.44-2EAD33.svg)](https://playwright.dev/python/)
+[![pytest](https://img.shields.io/badge/pytest-8.2-0A9EDC.svg)](https://docs.pytest.org/)
+[![Tests](https://img.shields.io/badge/tests-8%20passing-success.svg)](tests/)
+
+A professional test automation framework and an AI-powered test-generation agent, built for the **Course Catalog App** (React client + Express/SQLite backend). It unifies **API contract testing** and **UI end-to-end testing** in a single Python/Playwright stack, and includes a grounded LLM agent that turns backend source code into reviewable Markdown test plans.
+
+---
+
+## Contents
+
+- [Quick Start](#-quick-start)
+- [Architecture](#-architecture)
+- [Project Structure](#-project-structure)
+- [Local Setup & Execution](#️-local-setup--execution)
+- [AI Test-Writing Agent](#-ai-test-writing-agent)
+- [CI Pipeline & Gating](#-ci-pipeline--gating)
+- [Troubleshooting](#-troubleshooting)
+- [Known Gaps & Roadmap](#-known-gaps--roadmap)
+
+---
+
+## ⚡ Quick Start
+
+Already have the app running on `:5000` (API) and `:5173` (client)? Run the full suite in three commands:
+
+```bash
+# From inside tester-repo/
+pip install -r requirements.txt
+playwright install chromium
+pytest -v
+```
+
+All **8 tests** (API + E2E + AI-grounded) run in ~3 seconds against your local servers — no configuration required.
+
+> First time? See [Local Setup & Execution](#️-local-setup--execution) for how to start the app and create the virtual environment.
+
+---
+
+## 🏛 Architecture
+
+This framework makes a few deliberate design choices. Full rationale lives in [`docs/architecture.md`](docs/architecture.md).
+
+| Decision | Why |
+| --- | --- |
+| **Unified Python stack** (`pytest` + `pytest-playwright`) | One language and one virtual environment for API tests, UI tests, and the AI agent — no JavaScript/Python split. |
+| **Playwright** (over Selenium/Cypress) | Native support for *both* browser automation and HTTP API testing via `APIRequestContext`, plus auto-waiting that removes flaky sleeps. |
+| **Page Object Model** (`pages/`) | Selectors live in exactly one place; tests express intent, not CSS. UI changes touch one file, not every test. |
+| **Markdown-first AI agent** | The agent emits a human-readable test *plan*, not executable code — a senior engineer reviews it before anything is committed. |
+| **SQLite backend** | The app self-seeds a file-based database, so the whole stack boots in seconds with zero external infra (no Postgres, no Docker). |
+
+**One critical constraint worth knowing:** the React client stores its auth session in memory (`useState`), not in `localStorage` or cookies. E2E tests therefore drive the real sign-in UI and must use client-side navigation after login — a hard page reload discards the session. This shaped the fixture and page-object design.
 
 ---
 
@@ -10,17 +62,17 @@ This repository contains a professional automation testing framework and an AI-p
 tester-repo/
 ├── tests/
 │   ├── api/              # Reference API tests (Basic Auth & Course CRUD)
-│   ├── e2e/              # Reference UI End-to-End tests (POM-based)
-│   ├── generated/         # Executable generated test cases (grounded in AI output)
+│   ├── e2e/              # Reference UI end-to-end tests (POM-based)
+│   ├── generated/        # Executable tests derived from the AI agent's plan
 │   └── fixtures/         # Shared pytest fixtures (conftest.py)
 ├── pages/                # Page Object Model (POM) classes
-├── agent/                # Python AI agent scripts
-│   └── generated/        # AI generated Markdown test cases (create_course.md)
-├── docs/                 # Architectural decision documents (architecture.md)
-├── .github/workflows/    # CI/CD pipelines (ci.yml)
+├── agent/                # AI test-writing agent
+│   └── generated/        # AI-generated Markdown test plan (create_course.md)
+├── docs/                 # Architecture decision record (architecture.md)
+├── .github/workflows/    # CI/CD pipeline (ci.yml)
 ├── requirements.txt      # Python dependencies
-├── CODEOWNERS            # Access control configuration for gating
-└── README.md             # This document
+├── CODEOWNERS            # Review-gating configuration
+└── README.md            # This document
 ```
 
 ---
@@ -28,86 +80,148 @@ tester-repo/
 ## 🛠️ Local Setup & Execution
 
 ### Prerequisites
-*   **Node.js 20 LTS**
-*   **Python 3.12**
+- **Node.js 20 LTS** (Node 24 fails to compile the native `sqlite3` driver)
+- **Python 3.12** (Python 3.14 fails to compile Playwright's `greenlet`)
 
 ### 1. Start the Target Application
-Ensure the Course Catalog App is running locally. In your application workspace:
-1.  **Start API Backend:**
-    ```bash
-    cd app/course-catalog-app/api
-    npm install
-    npm run seed
-    npm start
-    ```
-    *The API will start listening on port 5000.*
-2.  **Start React Client:**
-    ```bash
-    cd app/course-catalog-app/client
-    npm install
-    npm run dev
-    ```
-    *The client will start listening on port 5173.*
+In your application workspace:
 
-### 2. Setup the Tester Environment
+1. **Start the API backend:**
+   ```bash
+   cd app/course-catalog-app/api
+   npm install
+   npm run seed
+   npm start
+   ```
+   *The API listens on port 5000.*
+
+2. **Start the React client:**
+   ```bash
+   cd app/course-catalog-app/client
+   npm install
+   npm run dev
+   ```
+   *The client listens on port 5173.*
+
+### 2. Set Up the Tester Environment
 Inside this `tester-repo` directory:
-1.  **Create and Activate Virtual Environment:**
-    ```powershell
-    # Windows PowerShell
-    py -3.12 -m venv venv
-    .\venv\Scripts\Activate.ps1
-    ```
-2.  **Install Dependencies:**
-    ```powershell
-    pip install -r requirements.txt
-    playwright install chromium
-    ```
 
-### 3. Run the Automated Tests
-Execute the pytest suite (API, E2E UI, and AI-grounded tests) locally:
-```powershell
-# Runs against localhost by default
-pytest -v
+1. **Create and activate a virtual environment:**
+   - **Windows (PowerShell):**
+     ```powershell
+     py -3.12 -m venv venv
+     .\venv\Scripts\Activate.ps1
+     ```
+   - **macOS / Linux:**
+     ```bash
+     python3.12 -m venv venv
+     source venv/bin/activate
+     ```
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
 
-# (Optional) Run tests against a different deployment environment (Staging/QA)
-$env:BASE_URL="http://staging-frontend.example.com"
-$env:API_BASE_URL="http://staging-backend.example.com"
+### 3. Run the Tests
+
+**Run everything** (API, UI, and AI-grounded tests):
+```bash
 pytest -v
 ```
 
-### 4. Run the AI Test-Writing Agent
-The agent reads the Express backend source code and generates a natural-language markdown test plan (`agent/generated/create_course.md`):
-```powershell
-# Set your API Key
-$env:GEMINI_API_KEY="your_api_key_here"
-
-# Execute Agent (defaults to gemini-3.5-flash)
-python agent/generate_tests.py
+**Run a subset:**
+```bash
+pytest tests/api -v            # API contract tests only
+pytest tests/e2e -v            # UI end-to-end tests only
+pytest tests/e2e --headed      # Watch the browser
+pytest tests/e2e/test_courses_e2e.py::test_e2e_create_course_success   # A single test
 ```
 
-### 5. Swapping LLM Providers (Optional)
-The agent supports multiple LLM providers out of the box. You can swap models without any code modifications by setting the correct environment variable and passing the `--model` flag:
+**Run against a hosted environment** (Staging / QA) by overriding the defaults:
+- **Windows (PowerShell):**
+  ```powershell
+  $env:BASE_URL="http://staging-frontend.example.com"
+  $env:API_BASE_URL="http://staging-backend.example.com"
+  pytest -v
+  ```
+- **macOS / Linux:**
+  ```bash
+  BASE_URL="http://staging-frontend.example.com" API_BASE_URL="http://staging-backend.example.com" pytest -v
+  ```
 
-*   **Claude (Anthropic):**
-    ```powershell
-    $env:ANTHROPIC_API_KEY="your_anthropic_key_here"
-    python agent/generate_tests.py --model claude-3-5-sonnet-latest
-    ```
-*   **OpenAI (e.g. GPT-4o / GPT-5):**
-    ```powershell
-    $env:OPENAI_API_KEY="your_openai_key_here"
-    python agent/generate_tests.py --model gpt-4o
-    ```
+### What's Covered
+
+| Layer | Tests | Scope |
+| --- | --- | --- |
+| **API** | 4 | `GET /api/courses`, `POST /api/courses`, missing-field validation, unauthenticated rejection |
+| **E2E (UI)** | 2 | Sign in → create course → verify on dashboard; empty-form validation |
+| **AI-generated** | 2 | Executable tests derived from the agent's grounded Markdown plan |
+| **Total** | **8** | Focused on the course-creation flow as a reference implementation. |
 
 ---
 
-## 🚀 CI Pipeline & Gating Sketch
+## 🤖 AI Test-Writing Agent
+
+The agent reads the Express backend source and generates a natural-language Markdown test plan at `agent/generated/create_course.md`, strictly grounded in the endpoints that actually exist in the source.
+
+```powershell
+# Set your API key
+$env:GEMINI_API_KEY="your_api_key_here"
+
+# Run the agent (defaults to gemini-3.5-flash)
+python agent/generate_tests.py
+```
+
+### Swapping LLM Providers (Optional)
+The agent supports multiple providers with no code changes — set the matching key and pass `--model`:
+
+- **Claude (Anthropic):**
+  ```powershell
+  $env:ANTHROPIC_API_KEY="your_anthropic_key_here"
+  python agent/generate_tests.py --model claude-3-5-sonnet-latest
+  ```
+- **OpenAI (e.g. GPT-4o):**
+  ```powershell
+  $env:OPENAI_API_KEY="your_openai_key_here"
+  python agent/generate_tests.py --model gpt-4o
+  ```
+
+---
+
+## 🚀 CI Pipeline & Gating
 
 ### GitHub Actions Pipeline
-The pipeline configured in `.github/workflows/ci.yml` triggers on every push or pull request to `main`/`master`. It dynamically boots a fresh instance of the application (cloning it from GitHub, seeding SQLite, and starting Node servers) before executing the Playwright suite.
+The workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push or pull request to `main`/`master`:
+
+1. Checks out this repository
+2. Clones the Course Catalog app into a sibling directory
+3. Installs Node, seeds SQLite, and starts the backend (`:5000`) and frontend (`:5173`)
+4. Waits until both servers respond
+5. Installs Python + the Playwright browser
+6. Runs `pytest` (API + E2E + AI-grounded tests)
+7. Runs the AI agent (only if the `GEMINI_API_KEY` secret is set)
+
+**To enable the agent step:** add `GEMINI_API_KEY` under GitHub → Settings → Secrets and variables → Actions.
 
 ### PR Gating Workflow
-To protect production from regressions:
-1.  **Branch Protection Rules:** The `main` branch of the frontend/backend repository is protected. Direct merges are disabled.
-2.  **Required Status Checks:** Pull requests are blocked from merging until the `CI Gating Suite` workflow in this repository runs and reports a **Green/Pass** status.
-3.  **CODEOWNERS Review:** Any edits modifying test files, fixtures, or workflows require mandatory review and approval from the `@automation-engineers-team` before the branch can be merged.
+To protect `main` from regressions:
+1. **Branch Protection:** Direct merges to `main` are disabled.
+2. **Required Status Checks:** PRs cannot merge until the `CI Gating Suite` reports a **Pass**.
+3. **CODEOWNERS Review:** Edits to tests, fixtures, or workflows require approval from the `@automation-engineers-team`.
+
+---
+
+## 🩺 Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Tests fail with **"connection refused"** | Backend/frontend not running | Start both servers (`:5000` and `:5173`) before running `pytest`. |
+| **E2E test hangs or logs out** after login | A hard page reload cleared the in-memory React session | Navigate via in-app links, never `page.goto()` after login. |
+| **`ModuleNotFoundError: pages`** | Python path not set | Run `pytest` from the `tester-repo/` root — `pytest.ini` sets `pythonpath = .`. |
+| Agent: **"Missing API key"** | No LLM key configured | Set `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) in your shell or `.env`. |
+| **Playwright browser not found** | Browser binaries not installed | Run `playwright install chromium`. |
+| `sqlite3` build error during `npm install` | Node version too new | Use Node 20 LTS. |
+| `greenlet` build error during `pip install` | Python version too new | Use Python 3.12. |
+
+See [`docs/architecture.md`](docs/architecture.md) for the full design rationale and analysis.

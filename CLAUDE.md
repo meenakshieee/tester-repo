@@ -47,8 +47,12 @@ cd ../app/course-catalog-app/client && npm run dev
 - **Layers**:
   - **API tests** (`tests/api/`): Direct REST calls via Playwright `APIRequestContext`
   - **E2E tests** (`tests/e2e/`): Browser automation via Playwright `Page`
+  - **Generated tests** (`tests/generated/`): Executable tests derived from the AI agent's Markdown plan
   - **Page Objects** (`pages/`): Encapsulate selectors and user interactions
   - **Fixtures** (`tests/fixtures/conftest.py`): Provide `api_client` and authentication
+- **Fixture loading**: the root `tests/conftest.py` registers the fixtures via
+  `pytest_plugins = ["tests.fixtures.conftest"]`, making `api_client` / `auth_headers`
+  available to every test module.
 
 ### Critical: React Session Model
 
@@ -68,10 +72,17 @@ The frontend stores auth state **in React memory only** (`useState` in `UserCont
 
 ### Page Objects (in `pages/`)
 
-| Class | Methods | Purpose |
+Page objects own **all** selectors and expose intent-revealing `expect_*` assertion
+methods (using Playwright's auto-waiting `expect`). Tests never touch raw selectors
+or hardcoded URLs.
+
+| Class | Actions | Assertions |
 |---|---|---|
-| `LoginPage` | `navigate()`, `login(email, password)` | Sign-in flow |
-| `CoursesPage` | `navigate_to_create()`, `create_course(...)`, `is_course_in_list(title)` | Dashboard + create form |
+| `LoginPage` | `navigate()`, `login(email, password)` | `expect_signed_in()` |
+| `CoursesPage` | `navigate_to_dashboard()`, `navigate_to_create()`, `create_course(...)` | `expect_on_detail_page(title)`, `expect_course_in_list(title)`, `expect_validation_errors()` |
+
+Both read `BASE_URL` (default `http://localhost:5173`) internally, so tests stay
+environment-agnostic — never hardcode URLs in a test.
 
 ### AI Agent (in `agent/generate_tests.py`)
 
@@ -104,46 +115,49 @@ The backend uses **HTTP Basic Auth** (not OAuth, not sessions).
 
 | Variable | Default | Notes |
 |---|---|---|
-| `BASE_URL` | `http://localhost:5173` | React frontend |
-| `API_BASE_URL` | `http://localhost:5000` | Express backend |
-| `TEST_USER_EMAIL` | `joe@smith.com` | Seeded user for tests |
-| `TEST_USER_PASSWORD` | `joepassword` | Seeded password |
-| `GEMINI_API_KEY` | unset | Required to run `generate_tests.py` with Gemini |
+| `BASE_URL` | `http://localhost:5173` | React frontend (read by page objects + fixtures) |
+| `API_BASE_URL` | `http://localhost:5000` | Express backend (read by the `api_client` fixture) |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | Default model for the agent (overridable via `--model`) |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | unset | Required to run `generate_tests.py` with Gemini |
 | `ANTHROPIC_API_KEY` | unset | Required to run `generate_tests.py` with Claude |
 | `OPENAI_API_KEY` | unset | Required to run `generate_tests.py` with OpenAI |
 
 Copy `.env.example` to `.env` and fill in your LLM key(s).
 
+> **Note:** the seeded test credentials (`joe@smith.com` / `joepassword`) are currently
+> **hardcoded** as constants in `tests/fixtures/conftest.py` (`JOE_EMAIL`/`JOE_PASSWORD`)
+> and in `tests/e2e/test_courses_e2e.py` — they are *not* read from environment variables.
+> If you make them configurable, update both places and this table.
+
 ---
 
 ## CI/CD
 
-`.github/workflows/ci.yml` assumes a **monorepo layout**:
-```
-ai-test-automation-framework/
-├── app/course-catalog-app/  (system under test)
-└── tester-repo/             (this project)
-```
+`.github/workflows/ci.yml` (job name: **CI Gating Suite**) runs on push/PR to `main`/`master`.
+It does **not** assume the app is present — it clones the app under test into a sibling
+`../app/course-catalog-app` directory, matching the path the tests and agent expect.
 
 The workflow:
-1. Checks out the repo
-2. Installs Node, npm-installs backend + frontend
-3. Starts Express (`:5000`) and Vite (`:5173`) in the background
-4. Waits for both ports to respond
-5. Installs Python dependencies and Playwright browser
-6. Runs `pytest` (API + E2E)
-7. Runs the AI agent (if `GEMINI_API_KEY` secret is set)
-8. Uploads test reports and generated plans as artifacts
+1. Checks out this repo
+2. Clones the Course Catalog app from GitHub into `../app/course-catalog-app`
+3. Sets up Node 20, then `npm install` + `npm run seed` + `npm start` for the backend, waiting on `:5000`
+4. `npm install` + `npm run dev` for the frontend, waiting on `:5173`
+5. Sets up Python 3.12, installs dependencies + the Playwright browser
+6. Runs `pytest -v` (API + E2E + AI-grounded tests)
+7. Runs the AI agent — only if the `GEMINI_API_KEY` secret is set (otherwise the step logs a skip and passes)
 
-To integrate: add the `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) as a GitHub Actions secret.
+To enable the agent step: add `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`)
+as a GitHub Actions secret. Note: there is currently no artifact-upload step.
 
 ---
 
 ## Key Files & Their Roles
 
+- **`tests/conftest.py`**: Root conftest — registers the fixtures plugin
 - **`tests/fixtures/conftest.py`**: Fixture definitions (`api_client`, `auth_headers`)
 - **`tests/api/test_courses_api.py`**: Contract tests for REST endpoints
 - **`tests/e2e/test_courses_e2e.py`**: Full UI flows (login → create → verify)
+- **`tests/generated/test_courses_agent.py`**: Executable tests derived from the agent's plan
 - **`pages/login_page.py`**: Sign-in page object
 - **`pages/courses_page.py`**: Dashboard + create-course page object
 - **`agent/generate_tests.py`**: AI test-plan generator (multi-LLM support)
@@ -159,14 +173,17 @@ To integrate: add the `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY
 
 1. Import `LoginPage` and `CoursesPage` (or create a new page object)
 2. Fixture receives a `page` object from pytest-playwright
-3. Drive the UI through page objects, never raw selectors
-4. Example:
+3. Drive the UI through page objects — never raw selectors, never hardcoded URLs
+4. Assert via the page object's `expect_*` methods (auto-waiting), not `page.wait_for_url(...)` with a literal URL
+5. Example:
 ```python
 def test_new_flow(page):
     login_page = LoginPage(page)
+    courses_page = CoursesPage(page)
+
     login_page.navigate()
     login_page.login("joe@smith.com", "joepassword")
-    page.wait_for_url("http://localhost:5173/")
+    login_page.expect_signed_in()          # NOT: page.wait_for_url("http://localhost:5173/")
     # rest of test...
 ```
 

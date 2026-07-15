@@ -1,6 +1,9 @@
 import pytest
 import uuid
 
+# These agent-derived tests exercise the REST API, so they carry the 'api' marker.
+pytestmark = pytest.mark.api
+
 def test_agent_happy_path_create_course(api_client, auth_headers):
     """
     Implements: Case 1 (Successful Course Creation) from agent/generated/create_course.md

@@ -1,10 +1,11 @@
-import os
 from playwright.sync_api import Page, expect
+
+from config import settings
 
 class LoginPage:
     def __init__(self, page: Page):
         self.page = page
-        self.base_url = os.getenv('BASE_URL', 'http://localhost:5173')
+        self.base_url = settings.base_url
         self.url = f"{self.base_url}/signin"
 
         # Locators
