@@ -1,0 +1,74 @@
+name: CI Gating Suite
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Check out the tester repository (this repo)
+    - name: Checkout Tester Repo
+      uses: actions/checkout@v4
+
+    # 2. Clone the application under test into a sibling directory
+    # This matches the ../app/course-catalog-app path expected by local tools & agent
+    - name: Clone Course Catalog App
+      run: |
+        git clone https://github.com/WeStOn2000/Full-Stack-App-with-React-and-a-REST-API.git ../app/course-catalog-app
+
+    # 3. Set up Node.js for running the application
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    # 4. Bootstrap and start the backend Express API
+    - name: Start Backend API
+      run: |
+        cd ../app/course-catalog-app/api
+        npm install
+        npm run seed
+        npm start &
+        npx wait-on http://localhost:5000/api/courses
+
+    # 5. Bootstrap and start the frontend React Client
+    - name: Start Frontend Client
+      run: |
+        cd ../app/course-catalog-app/client
+        npm install
+        npm run dev &
+        npx wait-on http://localhost:5173
+
+    # 6. Set up Python for running the tests and the AI agent
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+
+    # 7. Install python dependencies & Playwright browsers
+    - name: Install Python Dependencies
+      run: |
+        pip install -r requirements.txt
+        playwright install chromium
+
+    # 8. Run the manual automated test suite (API & E2E)
+    - name: Run Test Suite
+      run: |
+        pytest -v
+
+    # 9. Verify the AI Agent works
+    - name: Run Test-Writing AI Agent
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        if [ -n "$GEMINI_API_KEY" ]; then
+          python agent/generate_tests.py
+        else
+          echo "Skipping AI agent execution because GEMINI_API_KEY secret is not set."
+        fi

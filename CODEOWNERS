@@ -1,0 +1,15 @@
+# CODEOWNERS for Tester Repo
+# Ensures all pull requests affecting the automation test suite or CI pipelines require QA review.
+
+# General fallback: all files default to the automation engineering group
+*                       @automation-engineers-team
+
+# Tests directory ownership
+/tests/                 @automation-engineers-team
+
+# AI agent ownership
+/agent/                 @automation-engineers-team
+
+# CI / GitHub Actions pipeline changes
+/.github/workflows/     @automation-engineers-team
+/requirements.txt       @automation-engineers-team

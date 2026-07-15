@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Pytest / testing caches
+.pytest_cache/
+.pytest_cache
+.cache/
+test-results/
+playwright-report/
+blob-report/
+junit/
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# Environment secrets / keys
+.env
+.env.*
+!.env.example
+
+# IDEs and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
