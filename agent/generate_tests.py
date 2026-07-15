@@ -43,6 +43,7 @@ import argparse
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -142,6 +143,40 @@ def resolve_scope(feature: str | None, source_name: str) -> tuple[str, str, str]
         )
         stem = f"{_slugify(Path(source_name).stem)}_test_plan"
     return title, scope, stem
+
+
+# Substrings that indicate a transient, retryable LLM API error (server busy /
+# rate limited) rather than a permanent one (bad key, invalid model, bad request).
+_TRANSIENT_MARKERS = (
+    "503", "unavailable", "overloaded", "high demand",
+    "429", "resource_exhausted", "rate limit", "try again",
+)
+
+
+def _is_transient(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _TRANSIENT_MARKERS)
+
+
+def _with_retry(fn, *, attempts: int = 4, base_delay: float = 2.0):
+    """Call ``fn`` with exponential back-off on transient LLM API errors.
+
+    Permanent errors (auth, invalid model, bad request) are re-raised
+    immediately; only transient ones (503/429/overloaded) are retried.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - we re-raise non-transient below
+            if attempt >= attempts or not _is_transient(exc):
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            print(
+                f"[agent] Transient LLM error (attempt {attempt}/{attempts}): {exc}\n"
+                f"[agent] Retrying in {delay:.0f}s...",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
 
 
 def read_source(source_path: Path) -> str:
@@ -299,13 +334,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"[agent] Scope: {title}")
     print(f"[agent] Requesting test plan from model: {args.model}")
-    markdown = generate_test_plan(
+    markdown = _with_retry(lambda: generate_test_plan(
         model=args.model,
         source_name=source_path.name,
         source_code=source_code,
         title=title,
         scope_instruction=scope_instruction,
-    )
+    ))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown + "\n", encoding="utf-8")

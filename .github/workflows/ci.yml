@@ -79,8 +79,12 @@ jobs:
           agent/generated/
         if-no-files-found: ignore
 
-    # 10. Verify the AI Agent works
-    - name: Run Test-Writing AI Agent
+    # 10. Verify the AI Agent runs. This is a best-effort smoke check, NOT a
+    #     merge gate: a rate-limited or transient LLM API error must never block
+    #     a merge, so the step is non-blocking (continue-on-error).
+    - name: Run Test-Writing AI Agent (non-blocking)
+      if: ${{ always() }}
+      continue-on-error: true
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
