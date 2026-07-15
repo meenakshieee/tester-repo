@@ -28,3 +28,19 @@ def api_client(playwright: Playwright) -> APIRequestContext:
     request_context = playwright.request.new_context(base_url=settings.api_base_url)
     yield request_context
     request_context.dispose()
+
+
+@pytest.fixture
+def created_courses(api_client: APIRequestContext, auth_headers: dict[str, str]):
+    """Track course IDs created during a test and delete them on teardown.
+
+    Any test that creates a course should append its id to the yielded list.
+    This keeps the database clean between runs and makes parallel execution
+    (`pytest -n auto`) safe by ensuring no test leaves shared state behind.
+    It also exercises the DELETE /api/courses/:id endpoint as a side effect.
+    """
+    course_ids: list[int] = []
+    yield course_ids
+    for course_id in course_ids:
+        # Best-effort cleanup; ignore anything already gone.
+        api_client.delete(f"/api/courses/{course_id}", headers=auth_headers)

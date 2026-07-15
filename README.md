@@ -133,10 +133,21 @@ pytest -v
 **Run a subset:**
 ```bash
 pytest tests/api -v            # API contract tests only
-pytest tests/e2e -v            # UI end-to-end tests only
+pytest -m api                  # ...or by marker (api / e2e)
 pytest tests/e2e --headed      # Watch the browser
 pytest tests/e2e/test_courses_e2e.py::test_e2e_create_course_success   # A single test
 ```
+
+**Run in parallel** (via `pytest-xdist`):
+```bash
+pytest -n auto                 # one worker per CPU core
+pytest -n 4                    # a fixed number of workers
+```
+Parallel execution is **safe** here: each test that creates data registers it with the
+`created_courses` fixture, which deletes it on teardown — so workers never collide on
+shared database state. Parallelism is kept **opt-in** (not enabled by default) because for
+a suite this small the per-worker startup and browser overhead outweighs the savings;
+it pays off as the suite grows.
 
 **Run against a hosted environment** (Staging / QA) by overriding the defaults:
 - **Windows (PowerShell):**
@@ -225,3 +236,24 @@ To protect `main` from regressions:
 | `greenlet` build error during `pip install` | Python version too new | Use Python 3.12. |
 
 See [`docs/architecture.md`](docs/architecture.md) for the full design rationale and analysis.
+
+---
+
+## 🗺 Known Gaps & Roadmap
+
+This framework covers the **course-creation** flow as a reference implementation, and is
+built to scale from there.
+
+**Already in place for scale:**
+- Centralized, env-overridable config ([`config.py`](config.py)) — no hardcoded URLs or credentials.
+- Per-test data cleanup (`created_courses` fixture), which also exercises `DELETE /api/courses/:id`.
+- Safe parallel execution via `pytest-xdist` (`pytest -n auto`).
+- A capability-agnostic AI agent (`--feature` derives scope; not welded to one endpoint).
+
+**Planned extensions:**
+- [ ] `PUT /api/courses/:id` — dedicated update-course tests (ownership + validation)
+- [ ] `DELETE /api/courses/:id` — dedicated delete tests, incl. `403` for non-owners (currently only exercised as cleanup)
+- [ ] `GET /api/courses/:id` — course-detail contract
+- [ ] `POST /api/users` — sign-up flow
+- [ ] Reusable test-data factories for payload generation
+- [ ] Trace/video capture on failure in CI

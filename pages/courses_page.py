@@ -26,7 +26,12 @@ class CoursesPage:
         self.detail_title = page.locator("h4.course--name")
 
     def navigate_to_dashboard(self):
-        """Navigate to the dashboard (client-side safe)."""
+        """Navigate to the dashboard.
+
+        Uses a full page load. The dashboard `/` is a public route, so this is
+        fine for *viewing* courses even though it drops the in-memory auth
+        session. Do not rely on staying authenticated after calling this.
+        """
         self.page.goto(self.dashboard_url)
         expect(self.new_course_link).to_be_visible()
 
@@ -49,6 +54,12 @@ class CoursesPage:
         """Assert the app navigated to the course detail page with the expected title."""
         expect(self.page).to_have_url(re.compile(rf"{re.escape(self.base_url)}/courses/\d+$"))
         expect(self.detail_title).to_have_text(title)
+
+    def get_current_course_id(self) -> int:
+        """Extract the course id from the current detail-page URL (`/courses/:id`)."""
+        match = re.search(r"/courses/(\d+)", self.page.url)
+        assert match, f"Expected a course detail URL, got: {self.page.url}"
+        return int(match.group(1))
 
     def expect_course_in_list(self, title: str):
         """Assert a course appears in the dashboard list."""

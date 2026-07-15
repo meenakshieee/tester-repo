@@ -4,15 +4,15 @@ import uuid
 # These agent-derived tests exercise the REST API, so they carry the 'api' marker.
 pytestmark = pytest.mark.api
 
-def test_agent_happy_path_create_course(api_client, auth_headers):
+def test_agent_happy_path_create_course(api_client, auth_headers, created_courses):
     """
     Implements: Case 1 (Successful Course Creation) from agent/generated/create_course.md
-    
+
     Verifies that POSTing a valid JSON payload to /api/courses with proper
     Authorization returns a 201 Created status and a JSON body containing a courseId.
     """
     unique_title = f"Agent Generated Course - {uuid.uuid4().hex[:8]}"
-    
+
     # 1. Prepare JSON Payload grounded in agent plan
     payload = {
         "title": unique_title,
@@ -33,6 +33,9 @@ def test_agent_happy_path_create_course(api_client, auth_headers):
     body = response.json()
     assert "courseId" in body
     assert isinstance(body["courseId"], int)
+
+    # Register for cleanup so the test leaves no residual data.
+    created_courses.append(body["courseId"])
 
 def test_agent_validation_failure_missing_title(api_client, auth_headers):
     """

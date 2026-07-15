@@ -7,11 +7,12 @@ from pages.courses_page import CoursesPage
 pytestmark = pytest.mark.e2e
 
 
-def test_e2e_create_course_success(page, test_user):
+def test_e2e_create_course_success(page, test_user, created_courses):
     """Happy Path: User logs in, creates a course, and verifies it appears on the dashboard.
 
     This test uses Page Objects exclusively to avoid brittle hardcoded URLs and
-    text-based assertions. Credentials come from the env-driven `test_user` fixture.
+    text-based assertions. Credentials come from the env-driven `test_user` fixture,
+    and the created course is registered for cleanup so the test leaves no residue.
     """
     login_page = LoginPage(page)
     courses_page = CoursesPage(page)
@@ -33,6 +34,7 @@ def test_e2e_create_course_success(page, test_user):
 
     # 3. Verify redirect to detail page with correct title
     courses_page.expect_on_detail_page(unique_title)
+    created_courses.append(courses_page.get_current_course_id())
 
     # 4. Navigate back to dashboard and verify course is listed
     courses_page.expect_course_in_list(unique_title)

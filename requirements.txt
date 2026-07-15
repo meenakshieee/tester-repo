@@ -1,6 +1,7 @@
 pytest==8.2.2
 playwright==1.44.0
 pytest-playwright==0.5.0
+pytest-xdist==3.6.1
 google-genai>=1.0.0
 python-dotenv==1.0.1
 requests>=2.31.0

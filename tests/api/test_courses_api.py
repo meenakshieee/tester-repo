@@ -17,7 +17,7 @@ def test_get_courses(api_client):
         assert "title" in course
         assert "description" in course
 
-def test_create_course_success(api_client, auth_headers):
+def test_create_course_success(api_client, auth_headers, created_courses):
     """Verifies that an authenticated user can successfully create a course."""
     unique_title = f"API Woodworking Course - {uuid.uuid4().hex[:8]}"
     course_data = {
@@ -26,17 +26,20 @@ def test_create_course_success(api_client, auth_headers):
         "estimatedTime": "10 hours",
         "materialsNeeded": "Chisel, mallet, oak wood block"
     }
-    
+
     response = api_client.post(
         "/api/courses",
         data=course_data,
         headers=auth_headers
     )
-    
+
     assert response.status == 201
     body = response.json()
     assert "courseId" in body
     assert isinstance(body["courseId"], int)
+
+    # Register for cleanup so the test leaves no residual data.
+    created_courses.append(body["courseId"])
 
 def test_create_course_missing_fields(api_client, auth_headers):
     """Verifies that validation fails if required fields are missing."""
