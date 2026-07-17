@@ -1,10 +1,25 @@
 name: CI Gating Suite
 
 on:
-  push:
-    branches: [ main, master ]
+  # Gate: run the suite on every PR targeting the protected branch.
+  # Branch protection then requires this check to pass before the PR can merge.
   pull_request:
     branches: [ main, master ]
+  # Post-merge: verify the protected branch stays green after a merge.
+  push:
+    branches: [ main, master ]
+  # Allow manual runs from the Actions tab.
+  workflow_dispatch:
+
+# If new commits are pushed to the same PR/branch, cancel the superseded run
+# so only the latest commit is gated (saves runner minutes).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege token: the suite only needs to read the repo.
+permissions:
+  contents: read
 
 jobs:
   test:
